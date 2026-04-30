@@ -1,26 +1,4 @@
 {
   "users": [
-    {
-      "username": "smail",
-      "password": "$2b$08$iN25.nu650UAd/Fs7LhY.OKq4BEsuzgQJ7ThfAbWdtmlfMHxJN0wm"
-    },
-    {
-      "username": "s",
-      "password": "$2b$08$0AjEBlYKw8HG7Vk91lsQ..VNOO2eNgi7W7kTfTu8Pio6mmLgqOYVy"
-    },
-    {
-      "username": "ssda",
-      "password": "$2b$08$yQ.4BfEO2za7ggfMleeKD.cXqoa19xbLkNA8FD4orHHYsW81eoYoC"
-    },
-    {
-      "username": "rss",
-      "password": "$2b$10$JJ6tYYiiaQ31I/rxk0x5fO5lzjcUv1hSweM6MEWnBsBfHlJI3VSaK",
-      "created": "2026-04-30T11:33:55.449Z"
-    },
-    {
-      "username": "sss",
-      "password": "$2b$10$jpKSiKZx0Myk4u5cfT0jtu/Dif2eXkvVGZ/szlzUTi0rEsLdyjFlC",
-      "created": "2026-04-30T19:53:46.729Z"
-    }
   ]
 }
