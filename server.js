@@ -94,7 +94,7 @@ app.post('/api/login', (req, res) => {
 const distPath = join(__dirname, 'dist');
 if (existsSync(distPath)) {
   app.use(express.static(distPath));
-  app.get('*', (req, res) => {
+  app.get('*splat', (req, res) => {
     if (!req.path.startsWith('/api')) {
       res.sendFile(join(distPath, 'index.html'));
     }
