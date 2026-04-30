@@ -13,7 +13,8 @@
   --radius: 20px;
   --radius-sm: 12px;
   --radius-xs: 8px;
-  --font: 'Space Grotesk', 'Outfit', system-ui, sans-serif;
+  --font-primary: 'Space Grotesk', 'Outfit', system-ui, sans-serif;
+  --font: var(--font-primary);
   --transition: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   /* card accent colors */
   --c1: #ff6b6b; --c2: #feca57; --c3: #48dbfb; --c4: #ff9ff3;

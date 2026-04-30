@@ -1,5 +1,6 @@
 import './style.css';
-import { io } from 'socket.io-client';
+import { socket } from './socket.js';
+import { initI18n, currentLang, setLanguage } from './i18n.js';
 import { renderHome } from './pages/home.js';
 import { renderFlag } from './games/flag.js';
 import { renderHangman } from './games/hangman.js';
@@ -21,6 +22,10 @@ import { renderQuizDuel } from './games/quizduel.js';
 import { renderWhackMole } from './games/whackmole.js';
 import { renderSimon } from './games/simon.js';
 import { renderTicTacToe } from './games/tictactoe.js';
+import { renderMpTicTacToe } from './games/mp_tictactoe.js';
+import { renderMpRPS } from './games/mp_rps.js';
+import { renderMpTrivia } from './games/mp_trivia.js';
+import { renderMpReactionTime } from './games/mp_reactiontime.js';
 
 const routes = {
   '': renderHome,
@@ -46,9 +51,20 @@ const routes = {
   'tictactoe': renderTicTacToe,
 };
 
+// Multiplayer-capable game IDs
+const MP_GAMES = {
+  'tictactoe': renderMpTicTacToe,
+  'rps': renderMpRPS,
+  'trivia': renderMpTrivia,
+  'reactiontime': renderMpReactionTime,
+};
+
 function getRoute() {
   return window.location.hash.replace('#/', '').replace('#', '');
 }
+
+// Online player count (reactive)
+let _onlineCount = 0;
 
 function renderHeader(route) {
   const isHome = route === '';
@@ -56,8 +72,8 @@ function renderHeader(route) {
   const user = localStorage.getItem('pixelArenaUsername');
 
   const authBtn = user
-    ? `<button type="button" class="btn btn-secondary" id="auth-logout-btn" style="padding: 6px 12px; font-size: 0.85rem; border: 1px solid #ef4444; color: #ef4444; background: transparent;">Disconnect</button>`
-    : `<button type="button" class="btn btn-primary" id="auth-login-btn" style="padding: 6px 12px; font-size: 0.85rem;">Connect</button>`;
+    ? `<button type="button" class="btn btn-secondary" id="auth-logout-btn" style="padding: 6px 12px; font-size: 0.85rem; border: 1px solid #ef4444; color: #ef4444; background: transparent;" data-i18n-key="Disconnect">Disconnect</button>`
+    : `<button type="button" class="btn btn-primary" id="auth-login-btn" style="padding: 6px 12px; font-size: 0.85rem;" data-i18n-key="Connect">Connect</button>`;
 
   return `
     <header class="header">
@@ -67,7 +83,17 @@ function renderHeader(route) {
           <span class="logo-text">PixelArena</span>
         </div>
         <div style="display:flex;align-items:center;gap:0.75rem;">
-          ${!isHome ? `<a class="nav-home" href="#" id="nav-home-btn">← Back to Games</a>` : ''}
+          ${!isHome ? `<a class="nav-home" href="#" id="nav-home-btn" data-i18n-key="← Back to Games">← Back to Games</a>` : ''}
+          <div id="online-badge" style="display:flex;align-items:center;gap:0.4rem;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);border-radius:20px;padding:4px 10px;font-size:0.78rem;font-weight:600;color:#22c55e;">
+            <span style="width:7px;height:7px;border-radius:50%;background:#22c55e;display:inline-block;animation:pulse-dot 1.4s ease-in-out infinite;"></span>
+            <span id="online-count">${_onlineCount}</span> online
+          </div>
+          <select id="lang-selector" style="background:var(--card-bg); color:var(--text-dark); border:1px solid rgba(150,150,150,0.3); border-radius:6px; padding:4px 8px; font-size:0.85rem;">
+            <option value="en" ${currentLang==='en'?'selected':''}>🇬🇧 EN</option>
+            <option value="ar" ${currentLang==='ar'?'selected':''}>🇸🇦 AR</option>
+            <option value="fr" ${currentLang==='fr'?'selected':''}>🇫🇷 FR</option>
+            <option value="es" ${currentLang==='es'?'selected':''}>🇪🇸 ES</option>
+          </select>
           ${authBtn}
           <button type="button" class="dark-toggle" id="dark-toggle-btn" title="Toggle dark mode">${isDark ? '☀️' : '🌙'}</button>
         </div>
@@ -79,6 +105,9 @@ function renderHeader(route) {
 // Store cleanup functions for games
 let currentCleanup = null;
 
+// Pending multiplayer session from matchmaking
+let pendingMpSession = null;
+
 function render() {
   if (currentCleanup) {
     currentCleanup();
@@ -87,7 +116,6 @@ function render() {
 
   const route = getRoute();
   const app = document.getElementById('app');
-  const renderPage = routes[route] || renderHome;
 
   app.innerHTML = renderHeader(route);
 
@@ -96,12 +124,19 @@ function render() {
   content.className = 'fade-in';
   app.appendChild(content);
 
-  const cleanup = renderPage(content);
-  if (typeof cleanup === 'function') {
-    currentCleanup = cleanup;
+  // Check if this is a multiplayer game session
+  if (pendingMpSession && MP_GAMES[route] === MP_GAMES[pendingMpSession.gameId]) {
+    const session = pendingMpSession;
+    pendingMpSession = null;
+    const cleanup = MP_GAMES[session.gameId](content, session);
+    if (typeof cleanup === 'function') currentCleanup = cleanup;
+  } else {
+    const renderPage = routes[route] || renderHome;
+    const cleanup = renderPage(content);
+    if (typeof cleanup === 'function') currentCleanup = cleanup;
   }
 
-  // Header Logic — re-attach on every render since innerHTML was replaced
+  // Header re-attach
   const darkBtn = document.getElementById('dark-toggle-btn');
   if (darkBtn) {
     darkBtn.addEventListener('click', () => {
@@ -115,14 +150,13 @@ function render() {
   if (logoutBtn) {
     logoutBtn.addEventListener('click', () => {
       localStorage.removeItem('pixelArenaUsername');
+      socket.emit('playerOnline', { username: null });
       render();
       document.getElementById('chat-toggle').style.display = 'none';
       document.getElementById('chat-panel').classList.remove('active');
     });
   }
 
-  // The login button lives in the header (rebuilt on every render), so it's safe to
-  // attach a fresh listener each time — there's only ever one in the DOM.
   const loginBtn = document.getElementById('auth-login-btn');
   const authModal = document.getElementById('global-auth-modal');
   if (loginBtn && authModal) {
@@ -131,13 +165,32 @@ function render() {
       document.getElementById('global-auth-username').focus();
     });
   }
+
+  const langSel = document.getElementById('lang-selector');
+  if (langSel) {
+    langSel.addEventListener('change', (e) => {
+      setLanguage(e.target.value);
+    });
+  }
 }
 
-// Global Auth + Chat — wired once outside render() to avoid duplicate listeners
+// Global Auth + Chat — wired once outside render()
 window.addEventListener('DOMContentLoaded', () => {
+  initI18n();
+
   if (localStorage.getItem('darkMode') === 'true') {
     document.body.classList.add('dark');
   }
+
+  // Add pulse animation for online dot
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.7); }
+    }
+  `;
+  document.head.appendChild(style);
 
   const authModal = document.getElementById('global-auth-modal');
   document.getElementById('close-global-auth').addEventListener('click', () => {
@@ -169,7 +222,8 @@ window.addEventListener('DOMContentLoaded', () => {
         document.getElementById('global-auth-username').value = '';
         document.getElementById('global-auth-password').value = '';
         document.getElementById('chat-toggle').style.display = 'flex';
-        render(); // Refresh header to show username / Disconnect btn
+        socket.emit('playerOnline', { username });
+        render();
       } else {
         errEl.textContent = data.error || 'Authentication failed.';
         errEl.style.display = 'block';
@@ -183,12 +237,29 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('global-btn-login').addEventListener('click', () => handleGlobalAuth('login'));
   document.getElementById('global-btn-register').addEventListener('click', () => handleGlobalAuth('register'));
 
-  // Allow Enter key in global auth inputs
   const globalOnEnter = (e) => { if (e.key === 'Enter') handleGlobalAuth('login'); };
   document.getElementById('global-auth-username').addEventListener('keydown', globalOnEnter);
   document.getElementById('global-auth-password').addEventListener('keydown', globalOnEnter);
 
-  // ── Chat Wiring ──────────────────────────────────────────────────────────────
+  // ── Online count ────────────────────────────────────────────────────────────
+  socket.on('onlineCount', (count) => {
+    _onlineCount = count;
+    const el = document.getElementById('online-count');
+    if (el) el.textContent = count;
+  });
+
+  // ── Matchmaking result ──────────────────────────────────────────────────────
+  socket.on('matchFound', (session) => {
+    pendingMpSession = session;
+    // Navigate to the game route — render() will pick up pendingMpSession
+    if (window.location.hash === `#${session.gameId}`) {
+      render(); // already on the route, just re-render with mp session
+    } else {
+      window.location.hash = session.gameId;
+    }
+  });
+
+  // ── Chat ────────────────────────────────────────────────────────────────────
   const chatToggle = document.getElementById('chat-toggle');
   const chatPanel  = document.getElementById('chat-panel');
   const chatClose  = document.getElementById('chat-close');
@@ -198,9 +269,8 @@ window.addEventListener('DOMContentLoaded', () => {
 
   if (localStorage.getItem('pixelArenaUsername')) {
     chatToggle.style.display = 'flex';
+    socket.emit('playerOnline', { username: localStorage.getItem('pixelArenaUsername') });
   }
-
-  const socket = io(window.location.hostname === 'localhost' ? 'http://localhost:3000' : undefined);
 
   socket.on('chatHistory', (history) => {
     chatMessages.innerHTML = '';
@@ -246,5 +316,6 @@ window.addEventListener('DOMContentLoaded', () => {
   chatInput.addEventListener('keypress', (e) => e.key === 'Enter' && handleSend());
 
   window.addEventListener('hashchange', render);
+  window.addEventListener('languageChanged', render);
   render();
 });
